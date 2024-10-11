@@ -182,7 +182,7 @@ async def chat_completion(request: ChatCompletionRequest):
 
     else:
         # Add function calling information to the prompt
-        if request.tools and "firefunction-v2" not in request.model:
+        """if request.tools and "firefunction-v2" not in request.model:
             # Handle system prompt
             if request.messages and request.messages[0].role == "system":
                 pass
@@ -198,6 +198,24 @@ async def chat_completion(request: ChatCompletionRequest):
                     request.messages[-1].content = prompt
                 else:
                     # Insert the system prompt at the beginning of the messages
+                    request.messages.insert(
+                        0, ChatMessage(role="system", content=prompt)
+                    )"""
+        #if request.tools:
+        if request.tools and "firefunction-v2" not in request.model:
+            if request.messages and request.messages[0].role == "system":
+                pass
+            else:
+                prompt, user_role = get_tool_prompt(
+                    request.model,
+                    [tool.model_dump() for tool in request.tools],
+                    request.messages[-1].content,
+                    request.tool_choice,
+                    request.parallel_tool_calls
+                )
+                if user_role:
+                    request.messages[-1].content = prompt
+                else:
                     request.messages.insert(
                         0, ChatMessage(role="system", content=prompt)
                     )

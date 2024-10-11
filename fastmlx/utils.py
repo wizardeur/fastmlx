@@ -94,31 +94,52 @@ def get_model_type(model_name, available_models):
     return "default"
 
 
-def get_tool_prompt(model_name, tools, prompt):
+def get_tool_prompt(model_name, tools, prompt, tool_choice, parallel_tool_calls):
     tool_config = load_tools_config()
     available_models = tool_config["models"].keys()
     model_type = get_model_type(model_name, available_models)
+    print(f"DEBUG: MODEL_TYPE: {model_type}")
     model_config = tool_config["models"].get(
         model_type, tool_config["models"]["default"]
     )
     env = Environment(loader=FileSystemLoader(TOOLS_PATH))
     template = env.get_template(model_config["prompt_template"])
+
+    print(f"DEBUG tool_data: {tools}")
+    tool_definitions = json.dumps([tool['function'] for tool in tools], indent=2)
     if model_config.get("query", False):
-        return (
-            template.render(
-                tools=tools,
+        rendered_prompt=template.render(
+                tools=tool_definitions,
                 parallel_tool_calling=model_config.get("parallel_tool_calling", False),
                 current_date=datetime.now().strftime("%d %b %Y"),
                 query=prompt,
+                tool_choice=tool_choice
+            )
+        print(f"DEBUG: rendered_prompt:\n---\n{rendered_prompt}\n---\n")
+        return (
+            template.render(
+                tools=tool_definitions,
+                parallel_tool_calling=model_config.get("parallel_tool_calling", False),
+                current_date=datetime.now().strftime("%d %b %Y"),
+                query=prompt,
+                tool_choice=tool_choice
             ),
             True,
         )
     else:
-        return (
-            template.render(
-                tools=tools,
+        rendered_prompt=template.render(
+                tools=tool_definitions,
                 parallel_tool_calling=model_config.get("parallel_tool_calling", False),
                 current_date=datetime.now().strftime("%d %b %Y"),
+                tool_choice=tool_choice
+            )
+        print(f"DEBUG: rendered_prompt:\n---\n{rendered_prompt}\n---\n")
+        return (
+            template.render(
+                tools=tool_definitions,
+                parallel_tool_calling=model_config.get("parallel_tool_calling", False),
+                current_date=datetime.now().strftime("%d %b %Y"),
+                tool_choice=tool_choice
             ),
             False,
         )
@@ -164,8 +185,10 @@ def apply_lm_chat_template(
 def handle_function_calls(output: str, request):
     tool_calls = []
 
+    print(f"DEBUG OUTPUT: {output}")
     # Check for JSON format tool calls
     json_match = re.search(r'\{.*"tool_calls":\s*\[.*\].*\}', output, re.DOTALL)
+    json_match_name = re.search(r'\{.*"name":\s*".*",\s*"parameters":\s*\{.*\}\s*\}', output, re.DOTALL) 
     if json_match:
         try:
             json_data = json.loads(json_match.group())
@@ -184,6 +207,23 @@ def handle_function_calls(output: str, request):
             ).strip()
         except json.JSONDecodeError as e:
             print(f"Error parsing JSON tool calls: {e}")
+
+    # Parse JSON-based calls as per the llama-3.1 spec (works for llama-3.2 too)
+    elif json_match_name:
+        try:
+            tool_call = json.loads(json_match_name.group())
+            tool_calls.append(
+                ToolCall(
+                    id=f"call_{os.urandom(4).hex()}",
+                    function=FunctionCall(
+                        name=tool_call["name"],
+                        arguments=json.dumps(tool_call["parameters"])
+                    ),
+                )
+            )
+            output = re.sub(r'\{.*"name":\s*".*",\s*"parameters":\s*\{.*\}\s*\}', "", output, flags=re.DOTALL).strip()
+        except json.JSONDecodeError as e:
+            print(f"Error parsing JSON tool call: {e}")
 
     # Check for XML-style function calls
     # Check for function calls in both old and new XML formats
@@ -259,6 +299,30 @@ def handle_function_calls(output: str, request):
         except Exception as e:
             print(f"Error parsing functools call: {e}")
 
+    # Handle tool_choice
+    if hasattr(request, 'tool_choice'):
+        if request.tool_choice == "none":
+            tool_calls = []
+        elif request.tool_choice == "auto":
+            # Keep existing tool_calls
+            pass
+        elif isinstance(request.tool_choice, dict) and request.tool_choice.get("type") == "function":
+            function_name = request.tool_choice["function"]["name"]
+            # Find the matching tool call or create a new one
+            matching_call = next((call for call in tool_calls if call.function.name == function_name), None)
+            if matching_call:
+                tool_calls = [matching_call]
+            else:
+                tool_calls = [
+                    ToolCall(
+                        id=f"call_{os.urandom(4).hex()}",
+                        function=FunctionCall(
+                            name=function_name,
+                            arguments=json.dumps({}),  # You may need to extract arguments from the output
+                        ),
+                    )
+                ]
+
     # Prepare the response
     response = ChatCompletionResponse(
         id=f"chatcmpl-{os.urandom(4).hex()}",
@@ -267,7 +331,7 @@ def handle_function_calls(output: str, request):
         choices=[
             {
                 "index": 0,
-                "message": {"role": "assistant", "content": output},
+                "message": {"role": "assistant", "content": output, "tool_calls": tool_calls},
                 "finish_reason": "stop" if not tool_calls else "tool_call",
             }
         ],

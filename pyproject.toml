@@ -50,10 +50,8 @@ exclude = ["docs*"]
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}
 
-
-[tool.distutils.bdist_wheel]
-universal = true
-
+[tool.setuptools.package-data]
+fastmlx = ["tools/*.j2"]
 
 [tool.bumpversion]
 current_version = "0.2.1"
