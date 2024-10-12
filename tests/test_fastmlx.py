@@ -16,6 +16,8 @@ from fastmlx import (
     ModelProvider,
     app,
     handle_function_calls,
+    EmbeddingsRequest,
+    EmbeddingsResponse,
 )
 
 
@@ -48,7 +50,7 @@ class MockModelProvider(ModelProvider):
 
 
 # Mock MODELS dictionary
-MODELS = {"vlm": ["llava"], "lm": ["phi"]}
+MODELS = {"vlm": ["llava"], "lm": ["phi"], "embeddings": ["bert"]}
 
 
 # Mock functions
@@ -83,7 +85,7 @@ def client():
         yield TestClient(app)
 
 
-def test_chat_completion_vlm(client):
+def test_chat_completion_vlm(client: TestClient):
     request = ChatCompletionRequest(
         model="test_llava_model",
         messages=[ChatMessage(role="user", content="Hello")],
@@ -97,7 +99,7 @@ def test_chat_completion_vlm(client):
     assert "generated response" in response.json()["choices"][0]["message"]["content"]
 
 
-def test_chat_completion_lm(client):
+def test_chat_completion_lm(client: TestClient):
     request = ChatCompletionRequest(
         model="test_phi_model", messages=[ChatMessage(role="user", content="Hello")]
     )
@@ -110,7 +112,7 @@ def test_chat_completion_lm(client):
 
 
 @pytest.mark.asyncio
-async def test_vlm_streaming(client):
+async def test_vlm_streaming(client: TestClient):
 
     # Mock the vlm_stream_generate function
     response = client.post(
@@ -146,7 +148,7 @@ async def test_vlm_streaming(client):
 
 
 @pytest.mark.asyncio
-async def test_lm_streaming(client):
+async def test_lm_streaming(client: TestClient):
 
     # Mock the lm_stream_generate function
     response = client.post(
@@ -181,27 +183,30 @@ async def test_lm_streaming(client):
     assert chunks[-2] == "data: [DONE]"
 
 
-def test_get_supported_models(client):
+def test_get_supported_models(client: TestClient):
     response = client.get("/v1/supported_models")
     assert response.status_code == 200
     data = response.json()
     assert "vlm" in data
     assert "lm" in data
+    assert "embeddings" in data
     assert data["vlm"] == ["llava"]
     assert data["lm"] == ["phi"]
+    assert data["embeddings"] == ["bert"]
 
 
-def test_list_models(client):
+def test_list_models(client: TestClient):
     client.post("/v1/models?model_name=test_llava_model")
     client.post("/v1/models?model_name=test_phi_model")
+    client.post("/v1/models?model_name=test_bert_model")
 
     response = client.get("/v1/models")
 
     assert response.status_code == 200
-    assert set(response.json()["models"]) == {"test_llava_model", "test_phi_model"}
+    assert set(response.json()["models"]) == {"test_llava_model", "test_phi_model", "test_bert_model"}
 
 
-def test_add_model(client):
+def test_add_model(client: TestClient):
     response = client.post("/v1/models?model_name=new_llava_model")
 
     assert response.status_code == 200
@@ -211,7 +216,7 @@ def test_add_model(client):
     }
 
 
-def test_remove_model(client):
+def test_remove_model(client: TestClient):
     # Add a model
     response = client.post("/v1/models?model_name=test_model")
     assert response.status_code == 200
@@ -342,6 +347,44 @@ def test_handle_function_calls_multiple_functools():
     assert json.loads(response.tool_calls[1].function.arguments) == {"timezone": "EST"}
     assert "Here are the results:" in response.choices[0]["message"]["content"]
     assert "functools[" not in response.choices[0]["message"]["content"]
+
+
+# Add tests for the embeddings API
+def test_create_embedding(client: TestClient):
+    # Mock the embeddings model and tokenizer
+    mock_model = MagicMock()
+    mock_tokenizer = MagicMock()
+    mock_tokenizer.encode.return_value = [1, 2, 3]
+    mock_model.return_value = [[0.1, 0.2, 0.3]]
+
+    with patch("fastmlx.utils.embeddings_load", return_value=(mock_model, mock_tokenizer)):
+        request = EmbeddingsRequest(
+            model="test_bert_model",
+            input="Hello, world!",
+            encoding_formats="float"
+        )
+        response = client.post(
+            "/v1/embeddings", json=json.loads(request.model_dump_json())
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"embedding": [0.1, 0.2, 0.3]}
+
+
+def test_create_embedding_invalid_model(client: TestClient):
+    # Mock the embeddings model and tokenizer to raise an exception
+    with patch("fastmlx.utils.embeddings_load", side_effect=Exception("Model not found")):
+        request = EmbeddingsRequest(
+            model="invalid_model",
+            input="Hello, world!",
+            encoding_formats="float"
+        )
+        response = client.post(
+            "/v1/embeddings", json=json.loads(request.model_dump_json())
+        )
+
+        assert response.status_code == 500
+        assert "Model not found" in response.json()["detail"]
 
 
 if __name__ == "__main__":

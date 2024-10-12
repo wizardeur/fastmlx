@@ -15,6 +15,8 @@ from .types.chat.chat_completion import (
     ChatCompletionResponse,
     ChatMessage,
 )
+
+from .types.embeddings import EmbeddingsRequest, EmbeddingsResponse
 from .types.model import SupportedModels
 
 try:
@@ -33,6 +35,7 @@ try:
         lm_stream_generator,
         load_lm_model,
         load_vlm_model,
+        load_embeddings_model,
         vlm_stream_generator,
     )
 
@@ -53,10 +56,13 @@ class ModelProvider:
             model_type = MODEL_REMAPPING.get(config["model_type"], config["model_type"])
             if model_type in MODELS["vlm"]:
                 self.models[model_name] = load_vlm_model(model_name, config)
+            elif model_type + ".py" in MODELS["embeddings"]:
+                self.models[model_name] = load_embeddings_model(model_name, config)
             else:
                 self.models[model_name] = load_lm_model(model_name, config)
-
         return self.models[model_name]
+
+
 
     async def remove_model(self, model_name: str) -> bool:
         async with self.lock:
@@ -254,10 +260,41 @@ async def chat_completion(request: ChatCompletionRequest):
     return handle_function_calls(output, request)
 
 
+@app.post("/v1/embeddings", response_model=EmbeddingsResponse)
+async def create_embedding(request: EmbeddingsRequest):
+    model_data = model_provider.load_model(request.model)
+    model = model_data["model"]
+    config = model_data["config"]
+    tokenizer = model_data["tokenizer"]
+    input_ids = tokenizer.encode(request.input, return_tensors="mlx")
+    outputs = model(input_ids)
+    embeddings = outputs[0][:, 0, :].tolist()
+    
+    # Calculate token usage
+    input_tokens = len(input_ids[0])
+    
+    return EmbeddingsResponse(
+        model=request.model,
+        data=[
+            {
+                "object": "embedding",
+                "embedding": embedding,
+                "index": 0
+            }
+            for embedding in embeddings
+        ],
+        usage={
+            "prompt_tokens": input_tokens,
+            "total_tokens": input_tokens
+        }
+    )
+
+    
+
 @app.get("/v1/supported_models", response_model=SupportedModels)
 async def get_supported_models():
     """
-    Get a list of supported model types for VLM and LM.
+    Get a list of supported model types for VLM, LM, and Embeddings.
     """
     return JSONResponse(content=MODELS)
 

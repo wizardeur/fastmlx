@@ -16,6 +16,8 @@ from .types.chat.chat_completion import (
     ToolCall,
 )
 
+from .types.embeddings import EmbeddingsRequest, EmbeddingsResponse
+
 # MLX Imports
 try:
     import mlx.core as mx
@@ -28,6 +30,8 @@ try:
     from mlx_vlm import models as vlm_models
     from mlx_vlm.utils import load_image_processor
     from mlx_vlm.utils import stream_generate as vlm_stream_generate
+    from mlx_embeddings import models as embeddings_models
+    from mlx_embeddings.utils import load as embeddings_load
 except ImportError:
     print("Warning: mlx or mlx_lm not available. Some functionality will be limited.")
 
@@ -36,7 +40,6 @@ TOOLS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "tools"))
 
 
 def get_model_type_list(models, type="vlm"):
-
     # Get the directory path of the models package
     models_dir = os.path.dirname(models.__file__)
 
@@ -53,15 +56,20 @@ def get_model_type_list(models, type="vlm"):
         ]
         return submodules
     else:
-
         return [item for item in all_items if not item.startswith("__")]
 
 
 MODELS = {
     "vlm": get_model_type_list(vlm_models),
     "lm": get_model_type_list(lm_models, "lm"),
+    "embeddings": get_model_type_list(embeddings_models, "embeddings"),
 }
-MODEL_REMAPPING = {"llava-qwen2": "llava_bunny", "bunny-llama": "llava_bunny"}
+
+print(f"DEBUG: MODELS: {MODELS}")
+MODEL_REMAPPING = {
+    "llava-qwen2": "llava_bunny",
+    "bunny-llama": "llava_bunny",
+    }
 
 
 @contextmanager
@@ -350,6 +358,21 @@ def load_vlm_model(model_name: str, config: Dict[str, Any]) -> Dict[str, Any]:
 
 def load_lm_model(model_name: str, config: Dict[str, Any]) -> Dict[str, Any]:
     model, tokenizer = lm_load(model_name)
+    return {"model": model, "tokenizer": tokenizer, "config": config}
+
+
+def load_embeddings_model(model_name: str, config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Load an embeddings model and its tokenizer.
+
+    Args:
+        model_name (str): The name of the model to load.
+        config (Dict[str, Any]): The configuration for the model.
+
+    Returns:
+        Dict[str, Any]: A dictionary containing the model and tokenizer.
+    """
+    model, tokenizer = embeddings_load(model_name)
     return {"model": model, "tokenizer": tokenizer, "config": config}
 
 
