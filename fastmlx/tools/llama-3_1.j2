@@ -16,6 +16,13 @@ Given the following functions, please respond with a JSON for a function call wi
 
 Respond in the format {"name": function name, "parameters": dictionary of argument name and its value}. Do not use variables.
 
+Reminder:
+- Function calls MUST follow the specified format
+- Required parameters MUST be specified
+- Only call one function at a time
+- Put the entire function call reply on one line
+- Always add your sources when using search results to answer the user query
+
 {% endif %}
 You are a helpful assistant.{% if parallel_tool_calling %} Respond to queries efficiently, using parallel function calls when appropriate to gather information or perform tasks simultaneously.{% endif %}
 

@@ -98,14 +98,12 @@ def get_tool_prompt(model_name, tools, prompt, tool_choice, parallel_tool_calls)
     tool_config = load_tools_config()
     available_models = tool_config["models"].keys()
     model_type = get_model_type(model_name, available_models)
-    print(f"DEBUG: MODEL_TYPE: {model_type}")
     model_config = tool_config["models"].get(
         model_type, tool_config["models"]["default"]
     )
     env = Environment(loader=FileSystemLoader(TOOLS_PATH))
     template = env.get_template(model_config["prompt_template"])
 
-    print(f"DEBUG tool_data: {tools}")
     tool_definitions = json.dumps([tool['function'] for tool in tools], indent=2)
     if model_config.get("query", False):
         rendered_prompt=template.render(
@@ -115,7 +113,6 @@ def get_tool_prompt(model_name, tools, prompt, tool_choice, parallel_tool_calls)
                 query=prompt,
                 tool_choice=tool_choice
             )
-        print(f"DEBUG: rendered_prompt:\n---\n{rendered_prompt}\n---\n")
         return (
             template.render(
                 tools=tool_definitions,
@@ -133,7 +130,6 @@ def get_tool_prompt(model_name, tools, prompt, tool_choice, parallel_tool_calls)
                 current_date=datetime.now().strftime("%d %b %Y"),
                 tool_choice=tool_choice
             )
-        print(f"DEBUG: rendered_prompt:\n---\n{rendered_prompt}\n---\n")
         return (
             template.render(
                 tools=tool_definitions,
@@ -185,7 +181,6 @@ def apply_lm_chat_template(
 def handle_function_calls(output: str, request):
     tool_calls = []
 
-    print(f"DEBUG OUTPUT: {output}")
     # Check for JSON format tool calls
     json_match = re.search(r'\{.*"tool_calls":\s*\[.*\].*\}', output, re.DOTALL)
     json_match_name = re.search(r'\{.*"name":\s*".*",\s*"parameters":\s*\{.*\}\s*\}', output, re.DOTALL) 
